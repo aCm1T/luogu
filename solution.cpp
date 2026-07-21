@@ -490,7 +490,6 @@ static void compress_constant_chains(int& n, vector<int>& parent, vector<int>& o
         changed = false;
         for (int v = 2; v <= n; ++v) {
             if (!alive[v] || toggled[v]) continue;
-            // exactly one alive child?
             int only = -1, cnt = 0;
             for (int c : ch[v])
                 if (alive[c]) {
@@ -499,10 +498,8 @@ static void compress_constant_chains(int& n, vector<int>& parent, vector<int>& o
                     if (cnt > 1) break;
                 }
             if (cnt != 1) continue;
-            // reparent only -> parent[v]; edge v->parent always active
             int p = parent[v];
             parent[only] = p;
-            // update ch[p]: replace v with only
             for (int& x : ch[p])
                 if (x == v) {
                     x = only;
@@ -562,7 +559,10 @@ int main() {
 
         bool is_star = true;
         for (int i = 2; i <= n; ++i)
-            if (parent[i] != 1) is_star = false;
+            if (parent[i] != 1) {
+                is_star = false;
+                break;
+            }
 
         if (is_star) {
             DSU dsu;
