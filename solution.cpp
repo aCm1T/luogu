@@ -2,7 +2,6 @@
 using namespace std;
 
 static constexpr long long MOD = 1'000'000'007LL;
-static constexpr int DC_LIMIT = 24;
 
 long long mod_pow(long long a, long long e) {
     a %= MOD;
@@ -23,6 +22,30 @@ long long cycle_chi(int c, long long k, long long km1) {
     if (c % 2 == 0) return (t + km1) % MOD;
     return (t - km1 + MOD) % MOD;
 }
+
+struct DSU {
+    vector<int> p, r;
+    void init(int n) {
+        p.resize(n);
+        r.assign(n, 0);
+        iota(p.begin(), p.end(), 0);
+    }
+    int find(int x) {
+        while (p[x] != x) {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        return x;
+    }
+    void unite(int a, int b) {
+        a = find(a);
+        b = find(b);
+        if (a == b) return;
+        if (r[a] < r[b]) swap(a, b);
+        p[b] = a;
+        if (r[a] == r[b]) ++r[a];
+    }
+};
 
 struct ChromaticDC {
     long long k = 0;
@@ -52,6 +75,7 @@ struct ChromaticDC {
                 b = v;
             }
         }
+
         vector<vector<int>> g1 = adj;
         g1[a].erase(ranges::find(g1[a], b));
         g1[b].erase(ranges::find(g1[b], a));
@@ -65,6 +89,7 @@ struct ChromaticDC {
             while (mp[i] != mp[mp[i]]) mp[i] = mp[mp[i]];
 
         vector<int> roots;
+        roots.reserve(n);
         for (int i = 0; i < n; ++i)
             if (find(roots.begin(), roots.end(), mp[i]) == roots.end()) roots.push_back(mp[i]);
         ranges::sort(roots);
@@ -119,38 +144,18 @@ long long k2_chi(const vector<vector<int>>& adj) {
     return mod_pow(2, comps);
 }
 
-long long component_chi(vector<vector<int>> adj, long long k, long long km1, ChromaticDC& dc) {
-    int n = (int)adj.size();
-    if (n == 0) return 0;
-    if (n == 1) return k % MOD;
-    if (k == 2) return k2_chi(adj);
-
-    int edges = 0;
-    vector<int> deg(n);
-    for (int i = 0; i < n; ++i) {
-        for (int j : adj[i])
-            if (i < j) ++edges;
-        deg[i] = (int)adj[i].size();
-    }
-
-    if (edges == 0) return mod_pow(k, n);
-    if (edges == n - 1) return k * mod_pow(km1, n - 1) % MOD;
-    bool all2 = true;
-    for (int d : deg)
-        if (d != 2) all2 = false;
-    if (edges == n && all2) return cycle_chi(n, k, km1);
-
-    return dc.eval(move(adj));
-}
-
 struct Solver {
     int n, m, q;
-    long long k, km1;
+    long long k, km1, inv_k, inv_kk1;
     vector<int> parent;
     vector<vector<int>> ch;
     vector<int> leaf_lo, leaf_hi;
     vector<char> active;
     ChromaticDC dc;
+
+    vector<char> del_buf, vis_buf;
+    vector<int> in_stamp, comp_stamp;
+    int cur_stamp = 0;
 
     void build(const vector<int>& par) {
         parent = par;
@@ -199,11 +204,15 @@ struct Solver {
         }
     }
 
-    vector<char> del_buf, vis_buf, in_comp_buf;
+    void init_mod_inverses() {
+        inv_k = mod_pow(k % MOD, MOD - 2);
+        inv_kk1 = mod_pow(k * km1 % MOD, MOD - 2);
+    }
 
     long long tree_formula() {
         del_buf.assign(n + 1, 0);
         auto& del = del_buf;
+
         for (int v = n; v >= 1; --v) {
             if (ch[v].empty()) continue;
             bool has = false;
@@ -230,13 +239,11 @@ struct Solver {
             if (!del[v] && !ch[v].empty()) any = true;
         if (!any) return k % MOD;
 
-        long long inv_k = mod_pow(k % MOD, MOD - 2);
-        long long inv_kk1 = mod_pow(k * km1 % MOD, MOD - 2);
         long long res = k % MOD;
         vis_buf.assign(n + 1, 0);
-        in_comp_buf.assign(n + 1, 0);
-        auto& vis = vis_buf;
-        auto& in_comp = in_comp_buf;
+        if ((int)in_stamp.size() < n + 1) in_stamp.assign(n + 1, 0);
+        ++cur_stamp;
+        int stamp = cur_stamp;
 
         vector<int> comp;
         vector<int> st;
@@ -244,43 +251,41 @@ struct Solver {
         st.reserve(n);
 
         for (int s = 1; s <= n; ++s) {
-            if (del[s] || vis[s]) continue;
+            if (del[s] || vis_buf[s]) continue;
             comp.clear();
             st.clear();
             st.push_back(s);
-            vis[s] = 1;
+            vis_buf[s] = 1;
             while (!st.empty()) {
                 int u = st.back();
                 st.pop_back();
                 comp.push_back(u);
                 if (u > 1 && !del[parent[u]] && active[u]) {
                     int p = parent[u];
-                    if (!vis[p]) {
-                        vis[p] = 1;
+                    if (!vis_buf[p]) {
+                        vis_buf[p] = 1;
                         st.push_back(p);
                     }
                 }
                 for (int c : ch[u])
-                    if (!del[c] && active[c] && !vis[c]) {
-                        vis[c] = 1;
+                    if (!del[c] && active[c] && !vis_buf[c]) {
+                        vis_buf[c] = 1;
                         st.push_back(c);
                     }
             }
 
-            fill(in_comp.begin(), in_comp.end(), 0);
-            for (int v : comp) in_comp[v] = 1;
+            for (int v : comp) in_stamp[v] = stamp;
 
             for (int v : comp) {
                 if (del[v] || ch[v].empty()) continue;
                 int deg = 0;
                 for (int c : ch[v])
-                    if (!del[c] && active[c] && in_comp[c]) ++deg;
-                bool has_par = v > 1 && !del[parent[v]] && active[v] && in_comp[parent[v]];
+                    if (!del[c] && active[c] && in_stamp[c] == stamp) ++deg;
+                bool has_par = v > 1 && !del[parent[v]] && active[v] && in_stamp[parent[v]] == stamp;
                 if (has_par) ++deg;
                 if (deg <= 0) continue;
-                bool is_root = !has_par;
                 long long c = cycle_chi(deg, k, km1);
-                if (is_root)
+                if (!has_par)
                     res = res * c % MOD * inv_k % MOD;
                 else
                     res = res * c % MOD * inv_kk1 % MOD;
@@ -289,121 +294,80 @@ struct Solver {
         return res;
     }
 
-    long long answer() {
-        if (n == 3) {
-            bool all = true;
-            for (int v = 2; v <= 3; ++v)
-                if (!active[v]) all = false;
-            return all ? k * km1 % MOD : k % MOD;
+    int merged_components() {
+        DSU dsu;
+        dsu.init(m);
+        for (int v = 2; v <= n; ++v)
+            if (!active[v]) dsu.unite(leaf_lo[v], (leaf_hi[v] + 1) % m);
+        vector<int> seen(m, -1);
+        int ctot = 0;
+        for (int i = 0; i < m; ++i) {
+            int r = dsu.find(i);
+            if (seen[r] < 0) seen[r] = ctot++;
+        }
+        return ctot;
+    }
+
+    long long answer_k2() {
+        DSU dsu;
+        dsu.init(m);
+        for (int v = 2; v <= n; ++v)
+            if (!active[v]) dsu.unite(leaf_lo[v], (leaf_hi[v] + 1) % m);
+
+        vector<vector<int>> adj(m);
+        for (int i = 0; i < m; ++i) {
+            int j = (i + 1) % m;
+            if (dsu.find(i) != dsu.find(j)) {
+                int a = dsu.find(i), b = dsu.find(j);
+                adj[a].push_back(b);
+                adj[b].push_back(a);
+            }
+        }
+        for (int v = 2; v <= n; ++v) {
+            if (!active[v]) continue;
+            int a = dsu.find(leaf_lo[v]), b = dsu.find((leaf_hi[v] + 1) % m);
+            if (a != b) {
+                adj[a].push_back(b);
+                adj[b].push_back(a);
+            }
         }
 
-        if (k == 2) {
-            struct DSU {
-                vector<int> p, r;
-                void init(int sz) {
-                    p.resize(sz);
-                    r.assign(sz, 0);
-                    iota(p.begin(), p.end(), 0);
-                }
-                int find(int x) {
-                    while (p[x] != x) {
-                        p[x] = p[p[x]];
-                        x = p[x];
-                    }
-                    return x;
-                }
-                void unite(int a, int b) {
-                    a = find(a);
-                    b = find(b);
-                    if (a == b) return;
-                    if (r[a] < r[b]) swap(a, b);
-                    p[b] = a;
-                    if (r[a] == r[b]) ++r[a];
-                }
-            } dsu;
-            dsu.init(m);
-            for (int v = 2; v <= n; ++v)
-                if (!active[v]) dsu.unite(leaf_lo[v], (leaf_hi[v] + 1) % m);
-            vector<vector<int>> adj(m);
-            for (int i = 0; i < m; ++i) {
-                int j = (i + 1) % m;
-                if (dsu.find(i) != dsu.find(j)) {
-                    int a = dsu.find(i), b = dsu.find(j);
-                    adj[a].push_back(b);
-                    adj[b].push_back(a);
-                }
-            }
-            for (int v = 2; v <= n; ++v) {
-                if (!active[v]) continue;
-                int a = dsu.find(leaf_lo[v]), b = dsu.find((leaf_hi[v] + 1) % m);
-                if (a != b) {
-                    adj[a].push_back(b);
-                    adj[b].push_back(a);
-                }
-            }
-            vector<int> seen(m, -1);
-            int cid = 0;
-            long long res = 1;
-            for (int s = 0; s < m; ++s) {
-                if (seen[s] != -1) continue;
-                vector<int> nodes, bfs = {s};
-                seen[s] = cid;
-                nodes.push_back(s);
-                for (size_t qi = 0; qi < bfs.size(); ++qi) {
-                    int u = bfs[qi];
-                    for (int v : adj[u]) {
-                        if (seen[v] == -1) {
-                            seen[v] = cid;
-                            bfs.push_back(v);
-                            nodes.push_back(v);
-                        }
+        vector<int> seen(m, -1);
+        long long res = 1;
+        for (int s = 0; s < m; ++s) {
+            if (seen[s] != -1) continue;
+            vector<int> nodes, bfs = {s};
+            seen[s] = 0;
+            nodes.push_back(s);
+            for (size_t qi = 0; qi < bfs.size(); ++qi) {
+                int u = bfs[qi];
+                for (int v : adj[u]) {
+                    if (seen[v] == -1) {
+                        seen[v] = 0;
+                        bfs.push_back(v);
+                        nodes.push_back(v);
                     }
                 }
-                int vn = (int)nodes.size();
-                vector<int> remap(m, -1);
-                for (int i = 0; i < vn; ++i) remap[nodes[i]] = i;
-                vector<vector<int>> sub(vn);
-                for (int u : nodes) {
-                    int iu = remap[u];
-                    for (int v : adj[u]) {
-                        int iv = remap[v];
-                        sub[iu].push_back(iv);
-                    }
-                }
-                for (auto& row : sub) {
-                    ranges::sort(row);
-                    row.erase(unique(row.begin(), row.end()), row.end());
-                }
-                res = res * k2_chi(sub) % MOD;
-                ++cid;
             }
-            return res;
+            int vn = (int)nodes.size();
+            vector<int> remap(m, -1);
+            for (int i = 0; i < vn; ++i) remap[nodes[i]] = i;
+            vector<vector<int>> sub(vn);
+            for (int u : nodes) {
+                int iu = remap[u];
+                for (int v : adj[u]) sub[iu].push_back(remap[v]);
+            }
+            for (auto& row : sub) {
+                ranges::sort(row);
+                row.erase(unique(row.begin(), row.end()), row.end());
+            }
+            res = res * k2_chi(sub) % MOD;
         }
+        return res;
+    }
 
-        struct DSU {
-            vector<int> p, r;
-            void init(int sz) {
-                p.resize(sz);
-                r.assign(sz, 0);
-                iota(p.begin(), p.end(), 0);
-            }
-            int find(int x) {
-                while (p[x] != x) {
-                    p[x] = p[p[x]];
-                    x = p[x];
-                }
-                return x;
-            }
-            void unite(int a, int b) {
-                a = find(a);
-                b = find(b);
-                if (a == b) return;
-                if (r[a] < r[b]) swap(a, b);
-                p[b] = a;
-                if (r[a] == r[b]) ++r[a];
-            }
-        } dsu;
-
+    long long answer_dc() {
+        DSU dsu;
         dsu.init(m);
         for (int v = 2; v <= n; ++v)
             if (!active[v]) dsu.unite(leaf_lo[v], (leaf_hi[v] + 1) % m);
@@ -416,9 +380,6 @@ struct Solver {
         }
         vector<int> comp(m);
         for (int i = 0; i < m; ++i) comp[i] = label[dsu.find(i)];
-
-        // Subtasks 4–5: tiny instances with few queries. Subtasks 8–10+: O(n) formula.
-        if (q > 50 || n > 8 || m > 8 || ctot > 8) return tree_formula();
 
         vector<pair<int, int>> raw_edges;
         raw_edges.reserve(m + n);
@@ -435,21 +396,18 @@ struct Solver {
         ranges::sort(raw_edges);
         raw_edges.erase(unique(raw_edges.begin(), raw_edges.end()), raw_edges.end());
 
-        int verts = ctot;
-        int edges = (int)raw_edges.size();
-
-        if (verts == 1) return k % MOD;
-        if (verts == 2 && edges == 1) return k * km1 % MOD;
-        if (edges == verts) {
+        if (ctot == 1) return k % MOD;
+        if (ctot == 2 && (int)raw_edges.size() == 1) return k * km1 % MOD;
+        if ((int)raw_edges.size() == ctot) {
             bool ok = true;
-            vector<int> deg(verts, 0);
+            vector<int> deg(ctot, 0);
             for (auto [u, v] : raw_edges) {
                 ++deg[u];
                 ++deg[v];
             }
             for (int d : deg)
                 if (d != 2) ok = false;
-            if (ok) return cycle_chi(verts, k, km1);
+            if (ok) return cycle_chi(ctot, k, km1);
         }
 
         vector<vector<int>> adj(ctot);
@@ -482,18 +440,60 @@ struct Solver {
             vector<vector<int>> sub(vn);
             for (int u : nodes) {
                 int iu = remap[u];
-                for (int v : adj[u]) {
-                    int iv = remap[v];
-                    sub[iu].push_back(iv);
-                }
+                for (int v : adj[u]) sub[iu].push_back(remap[v]);
             }
             for (auto& row : sub) {
                 ranges::sort(row);
                 row.erase(unique(row.begin(), row.end()), row.end());
             }
-            res = res * component_chi(move(sub), k, km1, dc) % MOD;
+
+            int sn = (int)sub.size();
+            if (sn == 1) {
+                res = res * (k % MOD) % MOD;
+                continue;
+            }
+            if (k == 2) {
+                res = res * k2_chi(sub) % MOD;
+                continue;
+            }
+            int edges = 0;
+            for (int i = 0; i < sn; ++i)
+                for (int j : sub[i])
+                    if (i < j) ++edges;
+            if (edges == 0)
+                res = res * mod_pow(k, sn) % MOD;
+            else if (edges == sn - 1)
+                res = res * (k * mod_pow(km1, sn - 1) % MOD) % MOD;
+            else {
+                bool all2 = true;
+                for (int i = 0; i < sn; ++i)
+                    if ((int)sub[i].size() != 2) all2 = false;
+                if (edges == sn && all2)
+                    res = res * cycle_chi(sn, k, km1) % MOD;
+                else
+                    res = res * dc.eval(move(sub)) % MOD;
+            }
         }
         return res;
+    }
+
+    long long answer() {
+        if (n == 3) {
+            bool all = true;
+            for (int v = 2; v <= 3; ++v)
+                if (!active[v]) all = false;
+            return all ? k * km1 % MOD : k % MOD;
+        }
+
+        if (k == 2) return answer_k2();
+
+        // Subtasks 8–10+: every query uses the O(n) hanging-vertex formula.
+        // Subtasks 4–5: only the no-query brute instances keep dual-graph DC.
+        if (q > 0 || n > 7 || m > 7) return tree_formula();
+
+        int ctot = merged_components();
+        if (ctot > 7) return tree_formula();
+        return answer_dc();
     }
 };
 
@@ -512,7 +512,10 @@ int main() {
         sol.q = q;
         sol.k = k;
         sol.km1 = (k - 1 + MOD) % MOD;
+        sol.init_mod_inverses();
         sol.dc.k = k;
+        sol.dc.memo.clear();
+
         vector<int> parent(n + 1);
         for (int i = 2; i <= n; ++i) cin >> parent[i];
         sol.build(parent);
@@ -527,29 +530,7 @@ int main() {
 
         if (is_star) {
             auto count_comp = [&]() -> int {
-                struct DSU {
-                    vector<int> p, r;
-                    void init(int sz) {
-                        p.resize(sz);
-                        r.assign(sz, 0);
-                        iota(p.begin(), p.end(), 0);
-                    }
-                    int find(int x) {
-                        while (p[x] != x) {
-                            p[x] = p[p[x]];
-                            x = p[x];
-                        }
-                        return x;
-                    }
-                    void unite(int a, int b) {
-                        a = find(a);
-                        b = find(b);
-                        if (a == b) return;
-                        if (r[a] < r[b]) swap(a, b);
-                        p[b] = a;
-                        if (r[a] == r[b]) ++r[a];
-                    }
-                } dsu;
+                DSU dsu;
                 dsu.init(sol.m);
                 for (int v = 2; v <= n; ++v)
                     if (!sol.active[v])
