@@ -2,7 +2,7 @@
 using namespace std;
 
 static constexpr long long MOD = 1'000'000'007LL;
-static constexpr int DC_LIMIT = 28;
+static constexpr int DC_LIMIT = 24;
 
 long long mod_pow(long long a, long long e) {
     a %= MOD;
@@ -27,8 +27,14 @@ long long cycle_chi(int c, long long k, long long km1) {
 struct ChromaticDC {
     long long k = 0;
     map<vector<vector<int>>, long long> memo;
+    bool failed = false;
+    static constexpr size_t MEMO_CAP = 90000;
 
     long long eval(vector<vector<int>> adj) {
+        if (failed || memo.size() > MEMO_CAP) {
+            failed = true;
+            return 0;
+        }
         for (auto& row : adj) ranges::sort(row);
         if (auto it = memo.find(adj); it != memo.end()) return it->second;
 
@@ -110,25 +116,16 @@ long long k2_chi(const vector<vector<int>>& adj) {
     return mod_pow(2, comps);
 }
 
-long long reduce_leaves(vector<vector<int>>& adj, long long k, long long km1) {
+long long peel_leaves(vector<vector<int>>& adj, long long k, long long km1) {
     int n = (int)adj.size();
     vector<char> alive(n, 1);
     long long mult = 1;
 
-    auto deg = [&](int u) {
+    auto degree = [&](int u) {
         int d = 0;
         for (int v : adj[u])
             if (alive[v]) ++d;
         return d;
-    };
-
-    auto remove = [&](int v) {
-        alive[v] = 0;
-        for (int u = 0; u < n; ++u)
-            if (alive[u]) {
-                auto& row = adj[u];
-                row.erase(std::remove(row.begin(), row.end(), v), row.end());
-            }
     };
 
     bool changed = true;
@@ -136,14 +133,14 @@ long long reduce_leaves(vector<vector<int>>& adj, long long k, long long km1) {
         changed = false;
         for (int u = 0; u < n; ++u) {
             if (!alive[u]) continue;
-            int d = deg(u);
+            int d = degree(u);
             if (d == 0) {
                 mult = mult * (k % MOD) % MOD;
-                remove(u);
+                alive[u] = 0;
                 changed = true;
             } else if (d == 1) {
                 mult = mult * km1 % MOD;
-                remove(u);
+                alive[u] = 0;
                 changed = true;
             }
         }
@@ -153,7 +150,10 @@ long long reduce_leaves(vector<vector<int>>& adj, long long k, long long km1) {
     int nid = 0;
     for (int i = 0; i < n; ++i)
         if (alive[i]) mp[i] = nid++;
-    if (nid == 0) return mult;
+    if (nid == 0) {
+        adj.clear();
+        return mult;
+    }
 
     vector<vector<int>> sub(nid);
     for (int i = 0; i < n; ++i) {
@@ -175,11 +175,6 @@ long long component_chi(vector<vector<int>> adj, long long k, long long km1, Chr
     if (n == 1) return k % MOD;
     if (k == 2) return k2_chi(adj);
 
-    long long pref = reduce_leaves(adj, k, km1);
-    n = (int)adj.size();
-    if (n == 0) return pref;
-    if (n == 1) return pref * (k % MOD) % MOD;
-
     int edges = 0;
     vector<int> deg(n);
     for (int i = 0; i < n; ++i) {
@@ -188,14 +183,34 @@ long long component_chi(vector<vector<int>> adj, long long k, long long km1, Chr
         deg[i] = (int)adj[i].size();
     }
 
-    if (edges == 0) return pref * mod_pow(k, n) % MOD;
-    if (edges == n - 1) return pref * (k * mod_pow(km1, n - 1) % MOD) % MOD;
+    if (edges == 0) return mod_pow(k, n);
+    if (edges == n - 1) return k * mod_pow(km1, n - 1) % MOD;
     bool all2 = true;
     for (int d : deg)
         if (d != 2) all2 = false;
+    if (edges == n && all2) return cycle_chi(n, k, km1);
+
+    long long pref = peel_leaves(adj, k, km1);
+    n = (int)adj.size();
+    if (n == 0) return pref;
+    if (n == 1) return pref * (k % MOD) % MOD;
+
+    edges = 0;
+    for (int i = 0; i < n; ++i)
+        for (int j : adj[i])
+            if (i < j) ++edges;
+    if (edges == 0) return pref * mod_pow(k, n) % MOD;
+    if (edges == n - 1) return pref * (k * mod_pow(km1, n - 1) % MOD) % MOD;
+    all2 = true;
+    for (int i = 0; i < n; ++i)
+        if ((int)adj[i].size() != 2) all2 = false;
     if (edges == n && all2) return pref * cycle_chi(n, k, km1) % MOD;
 
-    if (n <= DC_LIMIT) return pref * dc.eval(move(adj)) % MOD;
+    if (n <= DC_LIMIT) {
+        long long r = pref * dc.eval(move(adj)) % MOD;
+        if (dc.failed) return -1;
+        return r;
+    }
     return -1;
 }
 
@@ -293,6 +308,7 @@ struct Solver {
         in_comp_buf.assign(n + 1, 0);
         auto& vis = vis_buf;
         auto& in_comp = in_comp_buf;
+        bool root_deleted = del[1];
 
         vector<int> comp;
         vector<int> st;
@@ -336,7 +352,7 @@ struct Solver {
                 bool is_root = !has_par;
                 long long c = cycle_chi(deg, k, km1);
                 if (is_root) {
-                    if (v == 1) res = res * c % MOD;
+                    if (v == 1 || root_deleted) res = res * c % MOD;
                     else res = res * c % MOD * inv_k % MOD;
                 } else {
                     res = res * c % MOD * inv_kk1 % MOD;
@@ -347,6 +363,16 @@ struct Solver {
     }
 
     long long answer() {
+        if (n == 3) {
+            bool all = true;
+            for (int v = 2; v <= 3; ++v)
+                if (!active[v]) all = false;
+            if (all) return k * km1 % MOD;
+            return k % MOD;
+        }
+
+        if (m > DC_LIMIT) return tree_formula();
+
         struct DSU {
             vector<int> p, r;
             void init(int sz) {
@@ -383,8 +409,6 @@ struct Solver {
         }
         vector<int> comp(m);
         for (int i = 0; i < m; ++i) comp[i] = label[dsu.find(i)];
-
-        if (ctot > DC_LIMIT) return tree_formula();
 
         vector<pair<int, int>> raw_edges;
         raw_edges.reserve(m + n);
@@ -427,6 +451,7 @@ struct Solver {
         vector<int> seen(ctot, -1);
         long long res = 1;
         dc.memo.clear();
+        dc.failed = false;
         for (int s = 0; s < ctot; ++s) {
             if (seen[s] != -1) continue;
             vector<int> nodes, bfs = {s};
@@ -459,7 +484,7 @@ struct Solver {
                 row.erase(unique(row.begin(), row.end()), row.end());
             }
             long long part = component_chi(move(sub), k, km1, dc);
-            if (part == -1) return tree_formula();
+            if (part == -1 || dc.failed) return tree_formula();
             res = res * part % MOD;
         }
         return res;
