@@ -10,6 +10,7 @@
 |------|------|------|
 | P15470 | [幼儿园](https://www.luogu.com.cn/problem/P15470)（ICPC 2024 WF） | [`P15470.cpp`](P15470.cpp) / [`P15470.md`](P15470.md) |
 | P17025 | [Ctot](https://www.luogu.com.cn/problem/P17025) | [`P17025.cpp`](P17025.cpp) |
+| P17094 | [Collecting Cents](https://www.luogu.com.cn/problem/P17094)（ICPC 2017 Qingdao） | [`P17094.cpp`](P17094.cpp) / [`P17094.md`](P17094.md) |
 
 ## 编译示例
 
