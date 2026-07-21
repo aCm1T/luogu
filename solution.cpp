@@ -475,6 +475,61 @@ struct Solver {
     }
 };
 
+// Compress always-active degree-2 chains (edge to parent never toggled).
+// Intermediate vertices contribute χ(2)/(k(k-1))=1, so dropping them is safe.
+static void compress_constant_chains(int& n, vector<int>& parent, vector<int>& ops) {
+    vector<char> toggled(n + 1, 0);
+    for (int v : ops) toggled[v] = 1;
+
+    vector<vector<int>> ch(n + 1);
+    for (int i = 2; i <= n; ++i) ch[parent[i]].push_back(i);
+
+    vector<char> alive(n + 1, 1);
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int v = 2; v <= n; ++v) {
+            if (!alive[v] || toggled[v]) continue;
+            // exactly one alive child?
+            int only = -1, cnt = 0;
+            for (int c : ch[v])
+                if (alive[c]) {
+                    only = c;
+                    ++cnt;
+                    if (cnt > 1) break;
+                }
+            if (cnt != 1) continue;
+            // reparent only -> parent[v]; edge v->parent always active
+            int p = parent[v];
+            parent[only] = p;
+            // update ch[p]: replace v with only
+            for (int& x : ch[p])
+                if (x == v) {
+                    x = only;
+                    break;
+                }
+            ch[v].clear();
+            alive[v] = 0;
+            changed = true;
+        }
+    }
+
+    vector<int> id(n + 1, 0);
+    int nn = 0;
+    for (int v = 1; v <= n; ++v)
+        if (alive[v]) id[v] = ++nn;
+
+    vector<int> new_parent(nn + 1, 0);
+    for (int v = 2; v <= n; ++v) {
+        if (!alive[v]) continue;
+        new_parent[id[v]] = id[parent[v]];
+    }
+    for (int& v : ops) v = id[v];
+
+    n = nn;
+    parent.swap(new_parent);
+}
+
 int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
@@ -485,6 +540,15 @@ int main() {
         int n, q;
         long long k;
         cin >> n >> k >> q;
+
+        vector<int> parent(n + 1);
+        for (int i = 2; i <= n; ++i) cin >> parent[i];
+
+        vector<int> ops(q);
+        for (int i = 0; i < q; ++i) cin >> ops[i];
+
+        if (q > 0 && n > 64) compress_constant_chains(n, parent, ops);
+
         Solver sol;
         sol.n = n;
         sol.q = q;
@@ -493,18 +557,12 @@ int main() {
         sol.init_mod_inverses();
         sol.dc.k = k;
         sol.dc.memo.clear();
-
-        vector<int> parent(n + 1);
-        for (int i = 2; i <= n; ++i) cin >> parent[i];
         sol.build(parent);
         sol.active.assign(n + 1, 1);
 
         bool is_star = true;
         for (int i = 2; i <= n; ++i)
             if (parent[i] != 1) is_star = false;
-
-        vector<int> ops(q);
-        for (int i = 0; i < q; ++i) cin >> ops[i];
 
         if (is_star) {
             DSU dsu;
