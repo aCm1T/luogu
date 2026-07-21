@@ -9,7 +9,7 @@
 | 题号 | 题目 | 文件 |
 |------|------|------|
 | P15470 | [幼儿园](https://www.luogu.com.cn/problem/P15470)（ICPC 2024 WF） | [`P15470.cpp`](P15470.cpp) / [`P15470.md`](P15470.md) |
-| P17025 | [Ctot](https://www.luogu.com.cn/problem/P17025) | [`P17025.cpp`](P17025.cpp) |
+| P17025 | [好的染色](https://www.luogu.com.cn/problem/P17025)（ROI 2026 Day2） | [`P17025.cpp`](P17025.cpp) / [`P17025.md`](P17025.md) |
 
 ## 编译示例
 
