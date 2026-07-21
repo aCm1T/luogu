@@ -232,13 +232,14 @@ struct Solver {
                 }
             if (!has) del_stamp[v] = del_id;
         }
+        // Pass 2: delete component roots that have exactly one active son.
         for (int v = 1; v <= n; ++v) {
             if (is_deleted(v)) continue;
             bool has_par = v > 1 && !is_deleted(parent[v]) && active[v];
             if (!has_par) {
                 int cnt = 0;
                 for (int c : ch[v])
-                    if (!is_deleted(c)) ++cnt;
+                    if (!is_deleted(c) && active[c]) ++cnt;
                 if (cnt == 1) del_stamp[v] = del_id;
             }
         }
@@ -292,6 +293,7 @@ struct Solver {
                 if (has_par) ++deg;
                 if (deg <= 0) continue;
                 long long c = cycle_chi(deg, k, km1);
+                if (c == 0) return 0;
                 if (!has_par)
                     res = res * c % MOD * inv_k % MOD;
                 else
@@ -321,56 +323,31 @@ struct Solver {
         for (int v = 2; v <= n; ++v)
             if (!active[v]) dsu.unite(leaf_lo[v], (leaf_hi[v] + 1) % m);
 
-        vector<vector<int>> adj(m);
+        vector<int> label(m, -1);
+        int ctot = 0;
         for (int i = 0; i < m; ++i) {
-            int j = (i + 1) % m;
-            if (dsu.find(i) != dsu.find(j)) {
-                int a = dsu.find(i), b = dsu.find(j);
-                adj[a].push_back(b);
-                adj[b].push_back(a);
-            }
+            int r = dsu.find(i);
+            if (label[r] < 0) label[r] = ctot++;
         }
+        vector<int> comp(m);
+        for (int i = 0; i < m; ++i) comp[i] = label[dsu.find(i)];
+
+        vector<vector<int>> adj(ctot);
+        auto add = [&](int a, int b) {
+            if (a == b) return;
+            adj[a].push_back(b);
+            adj[b].push_back(a);
+        };
+        for (int i = 0; i < m; ++i) add(comp[i], comp[(i + 1) % m]);
         for (int v = 2; v <= n; ++v) {
             if (!active[v]) continue;
-            int a = dsu.find(leaf_lo[v]), b = dsu.find((leaf_hi[v] + 1) % m);
-            if (a != b) {
-                adj[a].push_back(b);
-                adj[b].push_back(a);
-            }
+            add(comp[leaf_lo[v]], comp[(leaf_hi[v] + 1) % m]);
         }
-
-        vector<int> seen(m, -1);
-        long long res = 1;
-        for (int s = 0; s < m; ++s) {
-            if (seen[s] != -1) continue;
-            vector<int> nodes, bfs = {s};
-            seen[s] = 0;
-            nodes.push_back(s);
-            for (size_t qi = 0; qi < bfs.size(); ++qi) {
-                int u = bfs[qi];
-                for (int v : adj[u]) {
-                    if (seen[v] == -1) {
-                        seen[v] = 0;
-                        bfs.push_back(v);
-                        nodes.push_back(v);
-                    }
-                }
-            }
-            int vn = (int)nodes.size();
-            vector<int> remap(m, -1);
-            for (int i = 0; i < vn; ++i) remap[nodes[i]] = i;
-            vector<vector<int>> sub(vn);
-            for (int u : nodes) {
-                int iu = remap[u];
-                for (int v : adj[u]) sub[iu].push_back(remap[v]);
-            }
-            for (auto& row : sub) {
-                ranges::sort(row);
-                row.erase(unique(row.begin(), row.end()), row.end());
-            }
-            res = res * k2_chi(sub) % MOD;
+        for (auto& row : adj) {
+            ranges::sort(row);
+            row.erase(unique(row.begin(), row.end()), row.end());
         }
-        return res;
+        return k2_chi(adj);
     }
 
     long long answer_dc() {
@@ -488,14 +465,13 @@ struct Solver {
             return all ? k * km1 % MOD : k % MOD;
         }
 
-        if (k == 2) return answer_k2();
-
-        // Editorial subtasks 8–10: O(n) formula per query.
-        if (q > 0 || n > 7 || m > 7) return tree_formula();
-
-        int ctot = merged_components();
-        if (ctot > 7) return tree_formula();
-        return answer_dc();
+        // Brute dual DC only for tiny q=0 cases (subtasks 4–5 style).
+        // With queries, or larger graphs, use hanging-vertex formula (subtasks 7–10).
+        if (q == 0 && n <= 7 && m <= 7 && k != 2) {
+            int ctot = merged_components();
+            if (ctot <= 7) return answer_dc();
+        }
+        return tree_formula();
     }
 };
 
