@@ -150,12 +150,14 @@ struct Solver {
     vector<int> parent;
     vector<vector<int>> ch;
     vector<int> leaf_lo, leaf_hi;
+    vector<int> postorder;
     vector<char> active;
     ChromaticDC dc;
 
-    vector<char> del_buf, vis_buf;
-    vector<int> in_stamp, comp_stamp;
-    int cur_stamp = 0;
+    vector<int> del_stamp, vis_stamp, in_stamp;
+    int del_id = 0, vis_id = 0, comp_id = 0;
+
+    vector<int> comp_buf, stack_buf;
 
     void build(const vector<int>& par) {
         parent = par;
@@ -178,17 +180,17 @@ struct Solver {
 
         leaf_lo.assign(n + 1, m);
         leaf_hi.assign(n + 1, -1);
-        vector<int> order;
-        order.reserve(n);
+        postorder.clear();
+        postorder.reserve(n);
         st = {1};
         while (!st.empty()) {
             int u = st.back();
             st.pop_back();
-            order.push_back(u);
+            postorder.push_back(u);
             for (int v : ch[u]) st.push_back(v);
         }
-        for (int i = (int)order.size() - 1; i >= 0; --i) {
-            int u = order[i];
+        for (int i = (int)postorder.size() - 1; i >= 0; --i) {
+            int u = postorder[i];
             if (ch[u].empty()) {
                 int idx = leaf_index[u];
                 leaf_lo[u] = leaf_hi[u] = idx;
@@ -202,6 +204,12 @@ struct Solver {
                 leaf_hi[u] = hi;
             }
         }
+
+        del_stamp.assign(n + 1, 0);
+        vis_stamp.assign(n + 1, 0);
+        in_stamp.assign(n + 1, 0);
+        comp_buf.reserve(n);
+        stack_buf.reserve(n);
     }
 
     void init_mod_inverses() {
@@ -209,79 +217,78 @@ struct Solver {
         inv_kk1 = mod_pow(k * km1 % MOD, MOD - 2);
     }
 
-    long long tree_formula() {
-        del_buf.assign(n + 1, 0);
-        auto& del = del_buf;
+    bool is_deleted(int v) const { return del_stamp[v] == del_id; }
 
-        for (int v = n; v >= 1; --v) {
+    long long tree_formula() {
+        ++del_id;
+        for (int i = (int)postorder.size() - 1; i >= 0; --i) {
+            int v = postorder[i];
             if (ch[v].empty()) continue;
             bool has = false;
             for (int c : ch[v])
-                if (!del[c] && active[c]) {
+                if (!is_deleted(c) && active[c]) {
                     has = true;
                     break;
                 }
-            if (!has) del[v] = 1;
+            if (!has) del_stamp[v] = del_id;
         }
         for (int v = 1; v <= n; ++v) {
-            if (del[v]) continue;
-            bool has_par = v > 1 && !del[parent[v]] && active[v];
+            if (is_deleted(v)) continue;
+            bool has_par = v > 1 && !is_deleted(parent[v]) && active[v];
             if (!has_par) {
                 int cnt = 0;
                 for (int c : ch[v])
-                    if (!del[c]) ++cnt;
-                if (cnt == 1) del[v] = 1;
+                    if (!is_deleted(c)) ++cnt;
+                if (cnt == 1) del_stamp[v] = del_id;
             }
         }
 
         bool any = false;
         for (int v = 1; v <= n; ++v)
-            if (!del[v] && !ch[v].empty()) any = true;
+            if (!is_deleted(v) && !ch[v].empty()) any = true;
         if (!any) return k % MOD;
 
         long long res = k % MOD;
-        vis_buf.assign(n + 1, 0);
-        if ((int)in_stamp.size() < n + 1) in_stamp.assign(n + 1, 0);
-        ++cur_stamp;
-        int stamp = cur_stamp;
+        ++vis_id;
+        int vis = vis_id;
 
-        vector<int> comp;
-        vector<int> st;
-        comp.reserve(n);
-        st.reserve(n);
+        auto& comp = comp_buf;
+        auto& stk = stack_buf;
 
         for (int s = 1; s <= n; ++s) {
-            if (del[s] || vis_buf[s]) continue;
+            if (is_deleted(s) || vis_stamp[s] == vis) continue;
             comp.clear();
-            st.clear();
-            st.push_back(s);
-            vis_buf[s] = 1;
-            while (!st.empty()) {
-                int u = st.back();
-                st.pop_back();
+            stk.clear();
+            stk.push_back(s);
+            vis_stamp[s] = vis;
+            while (!stk.empty()) {
+                int u = stk.back();
+                stk.pop_back();
                 comp.push_back(u);
-                if (u > 1 && !del[parent[u]] && active[u]) {
+                if (u > 1 && !is_deleted(parent[u]) && active[u]) {
                     int p = parent[u];
-                    if (!vis_buf[p]) {
-                        vis_buf[p] = 1;
-                        st.push_back(p);
+                    if (vis_stamp[p] != vis) {
+                        vis_stamp[p] = vis;
+                        stk.push_back(p);
                     }
                 }
                 for (int c : ch[u])
-                    if (!del[c] && active[c] && !vis_buf[c]) {
-                        vis_buf[c] = 1;
-                        st.push_back(c);
+                    if (!is_deleted(c) && active[c] && vis_stamp[c] != vis) {
+                        vis_stamp[c] = vis;
+                        stk.push_back(c);
                     }
             }
 
-            for (int v : comp) in_stamp[v] = stamp;
+            ++comp_id;
+            int cid = comp_id;
+            for (int v : comp) in_stamp[v] = cid;
 
             for (int v : comp) {
-                if (del[v] || ch[v].empty()) continue;
+                if (is_deleted(v) || ch[v].empty()) continue;
                 int deg = 0;
                 for (int c : ch[v])
-                    if (!del[c] && active[c] && in_stamp[c] == stamp) ++deg;
-                bool has_par = v > 1 && !del[parent[v]] && active[v] && in_stamp[parent[v]] == stamp;
+                    if (!is_deleted(c) && active[c] && in_stamp[c] == cid) ++deg;
+                bool has_par = v > 1 && !is_deleted(parent[v]) && active[v] && in_stamp[parent[v]] == cid;
                 if (has_par) ++deg;
                 if (deg <= 0) continue;
                 long long c = cycle_chi(deg, k, km1);
@@ -452,10 +459,6 @@ struct Solver {
                 res = res * (k % MOD) % MOD;
                 continue;
             }
-            if (k == 2) {
-                res = res * k2_chi(sub) % MOD;
-                continue;
-            }
             int edges = 0;
             for (int i = 0; i < sn; ++i)
                 for (int j : sub[i])
@@ -487,8 +490,7 @@ struct Solver {
 
         if (k == 2) return answer_k2();
 
-        // Subtasks 8–10+: every query uses the O(n) hanging-vertex formula.
-        // Subtasks 4–5: only the no-query brute instances keep dual-graph DC.
+        // Editorial subtasks 8–10: O(n) formula per query.
         if (q > 0 || n > 7 || m > 7) return tree_formula();
 
         int ctot = merged_components();
@@ -529,13 +531,15 @@ int main() {
         for (int i = 0; i < q; ++i) cin >> ops[i];
 
         if (is_star) {
+            DSU dsu;
+            vector<int> seen;
+            dsu.init(1);
             auto count_comp = [&]() -> int {
-                DSU dsu;
                 dsu.init(sol.m);
                 for (int v = 2; v <= n; ++v)
                     if (!sol.active[v])
                         dsu.unite(sol.leaf_lo[v], (sol.leaf_hi[v] + 1) % sol.m);
-                vector<int> seen(sol.m, -1);
+                seen.assign(sol.m, -1);
                 int c = 0;
                 for (int i = 0; i < sol.m; ++i) {
                     int r = dsu.find(i);
