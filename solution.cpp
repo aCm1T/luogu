@@ -119,59 +119,6 @@ long long k2_chi(const vector<vector<int>>& adj) {
     return mod_pow(2, comps);
 }
 
-long long peel_leaves(vector<vector<int>>& adj, long long k, long long km1) {
-    int n = (int)adj.size();
-    vector<char> alive(n, 1);
-    long long mult = 1;
-
-    auto degree = [&](int u) {
-        int d = 0;
-        for (int v : adj[u])
-            if (alive[v]) ++d;
-        return d;
-    };
-
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (int u = 0; u < n; ++u) {
-            if (!alive[u]) continue;
-            int d = degree(u);
-            if (d == 0) {
-                mult = mult * (k % MOD) % MOD;
-                alive[u] = 0;
-                changed = true;
-            } else if (d == 1) {
-                mult = mult * km1 % MOD;
-                alive[u] = 0;
-                changed = true;
-            }
-        }
-    }
-
-    vector<int> mp(n, -1);
-    int nid = 0;
-    for (int i = 0; i < n; ++i)
-        if (alive[i]) mp[i] = nid++;
-    if (nid == 0) {
-        adj.clear();
-        return mult;
-    }
-
-    vector<vector<int>> sub(nid);
-    for (int i = 0; i < n; ++i) {
-        if (!alive[i]) continue;
-        for (int j : adj[i]) {
-            if (!alive[j] || i >= j) continue;
-            int u = mp[i], v = mp[j];
-            sub[u].push_back(v);
-            sub[v].push_back(u);
-        }
-    }
-    adj = move(sub);
-    return mult;
-}
-
 long long component_chi(vector<vector<int>> adj, long long k, long long km1, ChromaticDC& dc) {
     int n = (int)adj.size();
     if (n == 0) return 0;
@@ -193,23 +140,7 @@ long long component_chi(vector<vector<int>> adj, long long k, long long km1, Chr
         if (d != 2) all2 = false;
     if (edges == n && all2) return cycle_chi(n, k, km1);
 
-    long long pref = peel_leaves(adj, k, km1);
-    n = (int)adj.size();
-    if (n == 0) return pref;
-    if (n == 1) return pref * (k % MOD) % MOD;
-
-    edges = 0;
-    for (int i = 0; i < n; ++i)
-        for (int j : adj[i])
-            if (i < j) ++edges;
-    if (edges == 0) return pref * mod_pow(k, n) % MOD;
-    if (edges == n - 1) return pref * (k * mod_pow(km1, n - 1) % MOD) % MOD;
-    all2 = true;
-    for (int i = 0; i < n; ++i)
-        if ((int)adj[i].size() != 2) all2 = false;
-    if (edges == n && all2) return pref * cycle_chi(n, k, km1) % MOD;
-
-    return pref * dc.eval(move(adj)) % MOD;
+    return dc.eval(move(adj));
 }
 
 struct Solver {
@@ -361,6 +292,96 @@ struct Solver {
     }
 
     long long answer() {
+        if (n == 3) {
+            bool all = true;
+            for (int v = 2; v <= 3; ++v)
+                if (!active[v]) all = false;
+            return all ? k * km1 % MOD : k % MOD;
+        }
+
+        if (k == 2) {
+            struct DSU {
+                vector<int> p, r;
+                void init(int sz) {
+                    p.resize(sz);
+                    r.assign(sz, 0);
+                    iota(p.begin(), p.end(), 0);
+                }
+                int find(int x) {
+                    while (p[x] != x) {
+                        p[x] = p[p[x]];
+                        x = p[x];
+                    }
+                    return x;
+                }
+                void unite(int a, int b) {
+                    a = find(a);
+                    b = find(b);
+                    if (a == b) return;
+                    if (r[a] < r[b]) swap(a, b);
+                    p[b] = a;
+                    if (r[a] == r[b]) ++r[a];
+                }
+            } dsu;
+            dsu.init(m);
+            for (int v = 2; v <= n; ++v)
+                if (!active[v]) dsu.unite(leaf_lo[v], (leaf_hi[v] + 1) % m);
+            vector<vector<int>> adj(m);
+            for (int i = 0; i < m; ++i) {
+                int j = (i + 1) % m;
+                if (dsu.find(i) != dsu.find(j)) {
+                    int a = dsu.find(i), b = dsu.find(j);
+                    adj[a].push_back(b);
+                    adj[b].push_back(a);
+                }
+            }
+            for (int v = 2; v <= n; ++v) {
+                if (!active[v]) continue;
+                int a = dsu.find(leaf_lo[v]), b = dsu.find((leaf_hi[v] + 1) % m);
+                if (a != b) {
+                    adj[a].push_back(b);
+                    adj[b].push_back(a);
+                }
+            }
+            vector<int> seen(m, -1);
+            int cid = 0;
+            long long res = 1;
+            for (int s = 0; s < m; ++s) {
+                if (seen[s] != -1) continue;
+                vector<int> nodes, bfs = {s};
+                seen[s] = cid;
+                nodes.push_back(s);
+                for (size_t qi = 0; qi < bfs.size(); ++qi) {
+                    int u = bfs[qi];
+                    for (int v : adj[u]) {
+                        if (seen[v] == -1) {
+                            seen[v] = cid;
+                            bfs.push_back(v);
+                            nodes.push_back(v);
+                        }
+                    }
+                }
+                int vn = (int)nodes.size();
+                vector<int> remap(m, -1);
+                for (int i = 0; i < vn; ++i) remap[nodes[i]] = i;
+                vector<vector<int>> sub(vn);
+                for (int u : nodes) {
+                    int iu = remap[u];
+                    for (int v : adj[u]) {
+                        int iv = remap[v];
+                        sub[iu].push_back(iv);
+                    }
+                }
+                for (auto& row : sub) {
+                    ranges::sort(row);
+                    row.erase(unique(row.begin(), row.end()), row.end());
+                }
+                res = res * k2_chi(sub) % MOD;
+                ++cid;
+            }
+            return res;
+        }
+
         struct DSU {
             vector<int> p, r;
             void init(int sz) {
@@ -398,7 +419,8 @@ struct Solver {
         vector<int> comp(m);
         for (int i = 0; i < m; ++i) comp[i] = label[dsu.find(i)];
 
-        if (ctot > DC_LIMIT) return tree_formula();
+        // Subtasks 4–5 (small): dual-graph DC. Subtasks 7–10+: O(n) formula.
+        if (n > 8 || m > 8 || ctot > 8) return tree_formula();
 
         vector<pair<int, int>> raw_edges;
         raw_edges.reserve(m + n);
