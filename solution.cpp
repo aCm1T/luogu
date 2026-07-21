@@ -27,14 +27,8 @@ long long cycle_chi(int c, long long k, long long km1) {
 struct ChromaticDC {
     long long k = 0;
     map<vector<vector<int>>, long long> memo;
-    bool failed = false;
-    static constexpr size_t MEMO_CAP = 90000;
 
     long long eval(vector<vector<int>> adj) {
-        if (failed || memo.size() > MEMO_CAP) {
-            failed = true;
-            return 0;
-        }
         for (auto& row : adj) ranges::sort(row);
         if (auto it = memo.find(adj); it != memo.end()) return it->second;
 
@@ -48,7 +42,16 @@ struct ChromaticDC {
                 if (u < v) edges.emplace_back(u, v);
         if (edges.empty()) return memo[adj] = mod_pow(k, n);
 
-        auto [a, b] = edges[0];
+        int a = edges[0].first, b = edges[0].second;
+        int best = (int)adj[a].size() + (int)adj[b].size();
+        for (auto [u, v] : edges) {
+            int score = (int)adj[u].size() + (int)adj[v].size();
+            if (score < best) {
+                best = score;
+                a = u;
+                b = v;
+            }
+        }
         vector<vector<int>> g1 = adj;
         g1[a].erase(ranges::find(g1[a], b));
         g1[b].erase(ranges::find(g1[b], a));
@@ -206,12 +209,7 @@ long long component_chi(vector<vector<int>> adj, long long k, long long km1, Chr
         if ((int)adj[i].size() != 2) all2 = false;
     if (edges == n && all2) return pref * cycle_chi(n, k, km1) % MOD;
 
-    if (n <= DC_LIMIT) {
-        long long r = pref * dc.eval(move(adj)) % MOD;
-        if (dc.failed) return -1;
-        return r;
-    }
-    return -1;
+    return pref * dc.eval(move(adj)) % MOD;
 }
 
 struct Solver {
@@ -363,16 +361,6 @@ struct Solver {
     }
 
     long long answer() {
-        if (n == 3) {
-            bool all = true;
-            for (int v = 2; v <= 3; ++v)
-                if (!active[v]) all = false;
-            if (all) return k * km1 % MOD;
-            return k % MOD;
-        }
-
-        if (m > DC_LIMIT) return tree_formula();
-
         struct DSU {
             vector<int> p, r;
             void init(int sz) {
@@ -409,6 +397,8 @@ struct Solver {
         }
         vector<int> comp(m);
         for (int i = 0; i < m; ++i) comp[i] = label[dsu.find(i)];
+
+        if (ctot > DC_LIMIT) return tree_formula();
 
         vector<pair<int, int>> raw_edges;
         raw_edges.reserve(m + n);
@@ -450,8 +440,6 @@ struct Solver {
 
         vector<int> seen(ctot, -1);
         long long res = 1;
-        dc.memo.clear();
-        dc.failed = false;
         for (int s = 0; s < ctot; ++s) {
             if (seen[s] != -1) continue;
             vector<int> nodes, bfs = {s};
@@ -483,9 +471,7 @@ struct Solver {
                 ranges::sort(row);
                 row.erase(unique(row.begin(), row.end()), row.end());
             }
-            long long part = component_chi(move(sub), k, km1, dc);
-            if (part == -1 || dc.failed) return tree_formula();
-            res = res * part % MOD;
+            res = res * component_chi(move(sub), k, km1, dc) % MOD;
         }
         return res;
     }
