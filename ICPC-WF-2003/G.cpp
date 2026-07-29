@@ -165,7 +165,7 @@ int main() {
 
         if (tc > 1) cout << '\n';
         cout << "Case " << tc++ << ": checksum = " << hex4(checksum) << '\n';
-        cout << left << setw(8) << setfill(' ') << "SYMBOL" << "  ADDR\n";
+        cout << " SYMBOL   ADDR\n";
         cout << "--------  ----\n";
         for (const auto &entry : symbols) {
             cout << left << setw(8) << setfill(' ') << entry.first << "  ";
