@@ -10,21 +10,20 @@ using pll = pair<ll, ll>;
 
 constexpr int MOD = 1'000'000'007;
 
-int a,b;
+ll a,b;
 
-ll lcm(int a,int b){
+ll lcm(ll a,ll b){
     return a*b/gcd(a,b);
 }
 void solve() {
-    // Solution Code
+    cin >> a >> b;
+    cout << gcd(a,b) <<' '<< lcm(a,b);
 }
 
 int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    cin >> a >>b;
-    cout << gcd(a,b) <<' '<< lcm(a,b);
-
+    solve();
     return 0;
 }
